@@ -1,18 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * printk_safe.c - Safe printk for printk-deadlock-prone contexts
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <linux/preempt.h>
@@ -306,12 +294,12 @@ static __printf(1, 0) int vprintk_nmi(const char *fmt, va_list args)
 	return printk_safe_log_store(s, fmt, args);
 }
 
-void printk_nmi_enter(void)
+void notrace printk_nmi_enter(void)
 {
 	this_cpu_or(printk_context, PRINTK_NMI_CONTEXT_MASK);
 }
 
-void printk_nmi_exit(void)
+void notrace printk_nmi_exit(void)
 {
 	this_cpu_and(printk_context, ~PRINTK_NMI_CONTEXT_MASK);
 }
