@@ -34,6 +34,8 @@
 #ifndef RXE_PARAM_H
 #define RXE_PARAM_H
 
+#include <uapi/rdma/rdma_user_rxe.h>
+
 static inline enum ib_mtu rxe_mtu_int_to_enum(int mtu)
 {
 	if (mtu < 256)
@@ -64,7 +66,6 @@ enum rxe_device_param {
 	RXE_PAGE_SIZE_CAP		= 0xfffff000,
 	RXE_MAX_QP			= 0x10000,
 	RXE_MAX_QP_WR			= 0x4000,
-	RXE_MAX_INLINE_DATA		= 400,
 	RXE_DEVICE_CAP_FLAGS		= IB_DEVICE_BAD_PKEY_CNTR
 					| IB_DEVICE_BAD_QKEY_CNTR
 					| IB_DEVICE_AUTO_PATH_MIG
@@ -77,6 +78,10 @@ enum rxe_device_param {
 					| IB_DEVICE_MEM_MGT_EXTENSIONS
 					| IB_DEVICE_ALLOW_USER_UNREG,
 	RXE_MAX_SGE			= 32,
+	RXE_MAX_WQE_SIZE		= sizeof(struct rxe_send_wqe) +
+					  sizeof(struct ib_sge) * RXE_MAX_SGE,
+	RXE_MAX_INLINE_DATA		= RXE_MAX_WQE_SIZE -
+					  sizeof(struct rxe_send_wqe),
 	RXE_MAX_SGE_RD			= 32,
 	RXE_MAX_CQ			= 16384,
 	RXE_MAX_LOG_CQE			= 15,
@@ -95,7 +100,7 @@ enum rxe_device_param {
 	RXE_MAX_SRQ_SGE			= 27,
 	RXE_MIN_SRQ_SGE			= 1,
 	RXE_MAX_FMR_PAGE_LIST_LEN	= 512,
-	RXE_MAX_PKEYS			= 64,
+	RXE_MAX_PKEYS			= 1,
 	RXE_LOCAL_CA_ACK_DELAY		= 15,
 
 	RXE_MAX_UCONTEXT		= 512,
@@ -122,6 +127,9 @@ enum rxe_device_param {
 
 	/* Delay before calling arbiter timer */
 	RXE_NSEC_ARB_TIMER_DELAY	= 200,
+
+	/* IBTA v1.4 A3.3.1 VENDOR INFORMATION section */
+	RXE_VENDOR_ID			= 0XFFFFFF,
 };
 
 /* default/initial rxe port parameters */
@@ -140,7 +148,7 @@ enum rxe_port_param {
 	RXE_PORT_INIT_TYPE_REPLY	= 0,
 	RXE_PORT_ACTIVE_WIDTH		= IB_WIDTH_1X,
 	RXE_PORT_ACTIVE_SPEED		= 1,
-	RXE_PORT_PKEY_TBL_LEN		= 64,
+	RXE_PORT_PKEY_TBL_LEN		= 1,
 	RXE_PORT_PHYS_STATE		= IB_PORT_PHYS_STATE_POLLING,
 	RXE_PORT_SUBNET_PREFIX		= 0xfe80000000000000ULL,
 };

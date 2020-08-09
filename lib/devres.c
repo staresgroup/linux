@@ -8,7 +8,6 @@
 
 enum devm_ioremap_type {
 	DEVM_IOREMAP = 0,
-	DEVM_IOREMAP_NC,
 	DEVM_IOREMAP_UC,
 	DEVM_IOREMAP_WC,
 };
@@ -36,9 +35,6 @@ static void __iomem *__devm_ioremap(struct device *dev, resource_size_t offset,
 	switch (type) {
 	case DEVM_IOREMAP:
 		addr = ioremap(offset, size);
-		break;
-	case DEVM_IOREMAP_NC:
-		addr = ioremap_nocache(offset, size);
 		break;
 	case DEVM_IOREMAP_UC:
 		addr = ioremap_uc(offset, size);
@@ -88,22 +84,6 @@ void __iomem *devm_ioremap_uc(struct device *dev, resource_size_t offset,
 EXPORT_SYMBOL_GPL(devm_ioremap_uc);
 
 /**
- * devm_ioremap_nocache - Managed ioremap_nocache()
- * @dev: Generic device to remap IO address for
- * @offset: Resource address to map
- * @size: Size of map
- *
- * Managed ioremap_nocache().  Map is automatically unmapped on driver
- * detach.
- */
-void __iomem *devm_ioremap_nocache(struct device *dev, resource_size_t offset,
-				   resource_size_t size)
-{
-	return __devm_ioremap(dev, offset, size, DEVM_IOREMAP_NC);
-}
-EXPORT_SYMBOL(devm_ioremap_nocache);
-
-/**
  * devm_ioremap_wc - Managed ioremap_wc()
  * @dev: Generic device to remap IO address for
  * @offset: Resource address to map
@@ -139,6 +119,7 @@ __devm_ioremap_resource(struct device *dev, const struct resource *res,
 {
 	resource_size_t size;
 	void __iomem *dest_ptr;
+	char *pretty_name;
 
 	BUG_ON(!dev);
 
@@ -149,7 +130,15 @@ __devm_ioremap_resource(struct device *dev, const struct resource *res,
 
 	size = resource_size(res);
 
-	if (!devm_request_mem_region(dev, res->start, size, dev_name(dev))) {
+	if (res->name)
+		pretty_name = devm_kasprintf(dev, GFP_KERNEL, "%s %s",
+					     dev_name(dev), res->name);
+	else
+		pretty_name = devm_kstrdup(dev, dev_name(dev), GFP_KERNEL);
+	if (!pretty_name)
+		return IOMEM_ERR_PTR(-ENOMEM);
+
+	if (!devm_request_mem_region(dev, res->start, size, pretty_name)) {
 		dev_err(dev, "can't request region for resource %pR\n", res);
 		return IOMEM_ERR_PTR(-EBUSY);
 	}
@@ -224,6 +213,12 @@ void __iomem *devm_ioremap_resource_wc(struct device *dev,
  *	base = devm_of_iomap(&pdev->dev, node, 0, NULL);
  *	if (IS_ERR(base))
  *		return PTR_ERR(base);
+ *
+ * Please Note: This is not a one-to-one replacement for of_iomap() because the
+ * of_iomap() function does not track whether the region is already mapped.  If
+ * two drivers try to map the same memory, the of_iomap() function will succeed
+ * but the the devm_of_iomap() function will return -EBUSY.
+ *
  */
 void __iomem *devm_of_iomap(struct device *dev, struct device_node *node, int index,
 			    resource_size_t *size)

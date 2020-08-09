@@ -62,7 +62,7 @@ static int sst_byt_pcm_hw_params(struct snd_soc_component *component,
 				 struct snd_pcm_substream *substream,
 				 struct snd_pcm_hw_params *params)
 {
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
 	struct sst_byt_priv_data *pdata = snd_soc_component_get_drvdata(component);
 	struct sst_byt_pcm_data *pcm_data = &pdata->pcm[substream->stream];
 	struct sst_byt *byt = pdata->byt;
@@ -102,8 +102,6 @@ static int sst_byt_pcm_hw_params(struct snd_soc_component *component,
 		return ret;
 	}
 
-	snd_pcm_lib_malloc_pages(substream, params_buffer_bytes(params));
-
 	ret = sst_byt_stream_buffer(byt, pcm_data->stream,
 				    substream->dma_buffer.addr,
 				    params_buffer_bytes(params));
@@ -121,20 +119,9 @@ static int sst_byt_pcm_hw_params(struct snd_soc_component *component,
 	return 0;
 }
 
-static int sst_byt_pcm_hw_free(struct snd_soc_component *component,
-			       struct snd_pcm_substream *substream)
-{
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-
-	dev_dbg(rtd->dev, "PCM: hw_free\n");
-	snd_pcm_lib_free_pages(substream);
-
-	return 0;
-}
-
 static int sst_byt_pcm_restore_stream_context(struct snd_pcm_substream *substream)
 {
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
 	struct snd_soc_component *component = snd_soc_rtdcom_lookup(rtd, DRV_NAME);
 	struct sst_byt_priv_data *pdata = snd_soc_component_get_drvdata(component);
 	struct sst_byt_pcm_data *pcm_data = &pdata->pcm[substream->stream];
@@ -168,7 +155,7 @@ static void sst_byt_pcm_work(struct work_struct *work)
 static int sst_byt_pcm_trigger(struct snd_soc_component *component,
 			       struct snd_pcm_substream *substream, int cmd)
 {
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
 	struct sst_byt_priv_data *pdata = snd_soc_component_get_drvdata(component);
 	struct sst_byt_pcm_data *pcm_data = &pdata->pcm[substream->stream];
 	struct sst_byt *byt = pdata->byt;
@@ -210,7 +197,7 @@ static u32 byt_notify_pointer(struct sst_byt_stream *stream, void *data)
 	struct sst_byt_pcm_data *pcm_data = data;
 	struct snd_pcm_substream *substream = pcm_data->substream;
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
 	struct snd_soc_component *component = snd_soc_rtdcom_lookup(rtd, DRV_NAME);
 	struct sst_byt_priv_data *pdata = snd_soc_component_get_drvdata(component);
 	struct sst_byt *byt = pdata->byt;
@@ -232,7 +219,7 @@ static u32 byt_notify_pointer(struct sst_byt_stream *stream, void *data)
 static snd_pcm_uframes_t sst_byt_pcm_pointer(struct snd_soc_component *component,
 					     struct snd_pcm_substream *substream)
 {
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct sst_byt_priv_data *pdata = snd_soc_component_get_drvdata(component);
 	struct sst_byt_pcm_data *pcm_data = &pdata->pcm[substream->stream];
@@ -245,7 +232,7 @@ static snd_pcm_uframes_t sst_byt_pcm_pointer(struct snd_soc_component *component
 static int sst_byt_pcm_open(struct snd_soc_component *component,
 			    struct snd_pcm_substream *substream)
 {
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
 	struct sst_byt_priv_data *pdata = snd_soc_component_get_drvdata(component);
 	struct sst_byt_pcm_data *pcm_data = &pdata->pcm[substream->stream];
 	struct sst_byt *byt = pdata->byt;
@@ -273,7 +260,7 @@ static int sst_byt_pcm_open(struct snd_soc_component *component,
 static int sst_byt_pcm_close(struct snd_soc_component *component,
 			     struct snd_pcm_substream *substream)
 {
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
 	struct sst_byt_priv_data *pdata = snd_soc_component_get_drvdata(component);
 	struct sst_byt_pcm_data *pcm_data = &pdata->pcm[substream->stream];
 	struct sst_byt *byt = pdata->byt;
@@ -299,7 +286,7 @@ static int sst_byt_pcm_mmap(struct snd_soc_component *component,
 			    struct snd_pcm_substream *substream,
 			    struct vm_area_struct *vma)
 {
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
 
 	dev_dbg(rtd->dev, "PCM: mmap\n");
 	return snd_pcm_lib_default_mmap(substream, vma);
@@ -315,9 +302,8 @@ static int sst_byt_pcm_new(struct snd_soc_component *component,
 	if (pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream ||
 	    pcm->streams[SNDRV_PCM_STREAM_CAPTURE].substream) {
 		size = sst_byt_pcm_hardware.buffer_bytes_max;
-		snd_pcm_lib_preallocate_pages_for_all(pcm, SNDRV_DMA_TYPE_DEV,
-						      pdata->dma_dev,
-						      size, size);
+		snd_pcm_set_managed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV,
+					       pdata->dma_dev, size, size);
 	}
 
 	return 0;
@@ -373,9 +359,7 @@ static const struct snd_soc_component_driver byt_dai_component = {
 	.probe		= sst_byt_pcm_probe,
 	.open		= sst_byt_pcm_open,
 	.close		= sst_byt_pcm_close,
-	.ioctl		= snd_soc_pcm_lib_ioctl,
 	.hw_params	= sst_byt_pcm_hw_params,
-	.hw_free	= sst_byt_pcm_hw_free,
 	.trigger	= sst_byt_pcm_trigger,
 	.pointer	= sst_byt_pcm_pointer,
 	.mmap		= sst_byt_pcm_mmap,

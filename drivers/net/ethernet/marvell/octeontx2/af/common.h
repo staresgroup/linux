@@ -43,7 +43,7 @@ struct qmem {
 	void            *base;
 	dma_addr_t	iova;
 	int		alloc_sz;
-	u8		entry_sz;
+	u16		entry_sz;
 	u8		align;
 	u32		qsize;
 };
@@ -143,8 +143,13 @@ enum nix_scheduler {
 	NIX_TXSCH_LVL_CNT = 0x5,
 };
 
-#define TXSCH_TL1_DFLT_RR_QTM      ((1 << 24) - 1)
-#define TXSCH_TL1_DFLT_RR_PRIO     (0x1ull)
+#define TXSCH_RR_QTM_MAX		((1 << 24) - 1)
+#define TXSCH_TL1_DFLT_RR_QTM		TXSCH_RR_QTM_MAX
+#define TXSCH_TL1_DFLT_RR_PRIO		(0x1ull)
+#define MAX_SCHED_WEIGHT		0xFF
+#define DFLT_RR_WEIGHT			71
+#define DFLT_RR_QTM	((DFLT_RR_WEIGHT * TXSCH_RR_QTM_MAX) \
+			 / MAX_SCHED_WEIGHT)
 
 /* Min/Max packet sizes, excluding FCS */
 #define	NIC_HW_MIN_FRS			40

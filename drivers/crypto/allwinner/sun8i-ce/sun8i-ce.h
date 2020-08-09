@@ -131,12 +131,8 @@ struct ce_task {
  * @engine:	ptr to the crypto_engine for this flow
  * @bounce_iv:	buffer which contain the IV
  * @ivlen:	size of bounce_iv
- * @keylen:	keylen for this flow operation
  * @complete:	completion for the current task on this flow
  * @status:	set to 1 by interrupt if task is done
- * @method:	current method for flow
- * @op_dir:	direction (encrypt vs decrypt) of this flow
- * @op_mode:	op_mode for this flow
  * @t_phy:	Physical address of task
  * @tl:		pointer to the current ce_task for this flow
  * @stat_req:	number of request done by this flow
@@ -145,12 +141,8 @@ struct sun8i_ce_flow {
 	struct crypto_engine *engine;
 	void *bounce_iv;
 	unsigned int ivlen;
-	unsigned int keylen;
 	struct completion complete;
 	int status;
-	u32 method;
-	u32 op_dir;
-	u32 op_mode;
 	dma_addr_t t_phy;
 	int timeout;
 	struct ce_task *tl;
@@ -189,12 +181,14 @@ struct sun8i_ce_dev {
 
 /*
  * struct sun8i_cipher_req_ctx - context for a skcipher request
- * @op_dir:	direction (encrypt vs decrypt) for this request
- * @flow:	the flow to use for this request
+ * @op_dir:		direction (encrypt vs decrypt) for this request
+ * @flow:		the flow to use for this request
+ * @fallback_req:	request struct for invoking the fallback skcipher TFM
  */
 struct sun8i_cipher_req_ctx {
 	u32 op_dir;
 	int flow;
+	struct skcipher_request fallback_req;   // keep at the end
 };
 
 /*
@@ -210,7 +204,7 @@ struct sun8i_cipher_tfm_ctx {
 	u32 *key;
 	u32 keylen;
 	struct sun8i_ce_dev *ce;
-	struct crypto_sync_skcipher *fallback_tfm;
+	struct crypto_skcipher *fallback_tfm;
 };
 
 /*
@@ -222,7 +216,7 @@ struct sun8i_cipher_tfm_ctx {
  *			this template
  * @alg:		one of sub struct must be used
  * @stat_req:		number of request done on this template
- * @stat_fb:		total of all data len done on this template
+ * @stat_fb:		number of request which has fallbacked
  */
 struct sun8i_ce_alg_template {
 	u32 type;

@@ -51,8 +51,10 @@ static int init_fake_lmem_bar(struct intel_memory_region *mem)
 
 static void release_fake_lmem_bar(struct intel_memory_region *mem)
 {
-	if (drm_mm_node_allocated(&mem->fake_mappable))
-		drm_mm_remove_node(&mem->fake_mappable);
+	if (!drm_mm_node_allocated(&mem->fake_mappable))
+		return;
+
+	drm_mm_remove_node(&mem->fake_mappable);
 
 	dma_unmap_resource(&mem->i915->drm.pdev->dev,
 			   mem->remap_addr,
@@ -74,7 +76,7 @@ region_lmem_init(struct intel_memory_region *mem)
 {
 	int ret;
 
-	if (i915_modparams.fake_lmem_start) {
+	if (mem->i915->params.fake_lmem_start) {
 		ret = init_fake_lmem_bar(mem);
 		GEM_BUG_ON(ret);
 	}
@@ -87,6 +89,8 @@ region_lmem_init(struct intel_memory_region *mem)
 	ret = intel_memory_region_init_buddy(mem);
 	if (ret)
 		io_mapping_fini(&mem->iomap);
+
+	intel_memory_region_set_name(mem, "local");
 
 	return ret;
 }
@@ -107,12 +111,12 @@ intel_setup_fake_lmem(struct drm_i915_private *i915)
 	resource_size_t start;
 
 	GEM_BUG_ON(i915_ggtt_has_aperture(&i915->ggtt));
-	GEM_BUG_ON(!i915_modparams.fake_lmem_start);
+	GEM_BUG_ON(!i915->params.fake_lmem_start);
 
 	/* Your mappable aperture belongs to me now! */
 	mappable_end = pci_resource_len(pdev, 2);
 	io_start = pci_resource_start(pdev, 2),
-	start = i915_modparams.fake_lmem_start;
+	start = i915->params.fake_lmem_start;
 
 	mem = intel_memory_region_create(i915,
 					 start,
@@ -121,10 +125,12 @@ intel_setup_fake_lmem(struct drm_i915_private *i915)
 					 io_start,
 					 &intel_region_lmem_ops);
 	if (!IS_ERR(mem)) {
-		DRM_INFO("Intel graphics fake LMEM: %pR\n", &mem->region);
-		DRM_INFO("Intel graphics fake LMEM IO start: %llx\n",
-			 (u64)mem->io_start);
-		DRM_INFO("Intel graphics fake LMEM size: %llx\n",
+		drm_info(&i915->drm, "Intel graphics fake LMEM: %pR\n",
+			 &mem->region);
+		drm_info(&i915->drm,
+			 "Intel graphics fake LMEM IO start: %llx\n",
+			(u64)mem->io_start);
+		drm_info(&i915->drm, "Intel graphics fake LMEM size: %llx\n",
 			 (u64)resource_size(&mem->region));
 	}
 

@@ -180,6 +180,11 @@ static inline unsigned long migrate_pfn(unsigned long pfn)
 	return (pfn << MIGRATE_PFN_SHIFT) | MIGRATE_PFN_VALID;
 }
 
+enum migrate_vma_direction {
+	MIGRATE_VMA_SELECT_SYSTEM = 1 << 0,
+	MIGRATE_VMA_SELECT_DEVICE_PRIVATE = 1 << 1,
+};
+
 struct migrate_vma {
 	struct vm_area_struct	*vma;
 	/*
@@ -196,6 +201,17 @@ struct migrate_vma {
 	unsigned long		npages;
 	unsigned long		start;
 	unsigned long		end;
+
+	/*
+	 * Set to the owner value also stored in page->pgmap->owner for
+	 * migrating out of device private memory. The flags also need to
+	 * be set to MIGRATE_VMA_SELECT_DEVICE_PRIVATE.
+	 * The caller should always set this field when using mmu notifier
+	 * callbacks to avoid device MMU invalidations for device private
+	 * pages that are not being migrated.
+	 */
+	void			*pgmap_owner;
+	unsigned long		flags;
 };
 
 int migrate_vma_setup(struct migrate_vma *args);

@@ -65,11 +65,6 @@ typedef __kernel_ssize_t	ssize_t;
 typedef __kernel_ptrdiff_t	ptrdiff_t;
 #endif
 
-#ifndef _TIME_T
-#define _TIME_T
-typedef __kernel_old_time_t	time_t;
-#endif
-
 #ifndef _CLOCK_T
 #define _CLOCK_T
 typedef __kernel_clock_t	clock_t;
@@ -171,6 +166,8 @@ typedef unsigned long irq_hw_number_t;
 typedef struct {
 	int counter;
 } atomic_t;
+
+#define ATOMIC_INIT(i) { (i) }
 
 #ifdef CONFIG_64BIT
 typedef struct {

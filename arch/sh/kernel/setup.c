@@ -290,8 +290,6 @@ void __init setup_arch(char **cmdline_p)
 
 #ifdef CONFIG_BLK_DEV_RAM
 	rd_image_start = RAMDISK_FLAGS & RAMDISK_IMAGE_START_MASK;
-	rd_prompt = ((RAMDISK_FLAGS & RAMDISK_PROMPT_FLAG) != 0);
-	rd_doload = ((RAMDISK_FLAGS & RAMDISK_LOAD_FLAG) != 0);
 #endif
 
 	if (!MOUNT_ROOT_RDONLY)
@@ -340,10 +338,6 @@ void __init setup_arch(char **cmdline_p)
 #endif
 
 	paging_init();
-
-#ifdef CONFIG_DUMMY_CONSOLE
-	conswitchp = &dummy_con;
-#endif
 
 	/* Perform the machine specific initialisation */
 	if (likely(sh_mv.mv_setup))

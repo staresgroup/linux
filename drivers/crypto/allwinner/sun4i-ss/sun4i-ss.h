@@ -131,7 +131,16 @@
 #define SS_SEED_LEN 192
 #define SS_DATA_LEN 160
 
+/*
+ * struct ss_variant - Describe SS hardware variant
+ * @sha1_in_be:		The SHA1 digest is given by SS in BE, and so need to be inverted.
+ */
+struct ss_variant {
+	bool sha1_in_be;
+};
+
 struct sun4i_ss_ctx {
+	const struct ss_variant *variant;
 	void __iomem *base;
 	int irq;
 	struct clk *busclk;
@@ -161,11 +170,12 @@ struct sun4i_tfm_ctx {
 	u32 keylen;
 	u32 keymode;
 	struct sun4i_ss_ctx *ss;
-	struct crypto_sync_skcipher *fallback_tfm;
+	struct crypto_skcipher *fallback_tfm;
 };
 
 struct sun4i_cipher_req_ctx {
 	u32 mode;
+	struct skcipher_request fallback_req;   // keep at the end
 };
 
 struct sun4i_req_ctx {

@@ -37,12 +37,6 @@ static const struct drm_display_mode samsung_s6d16d0_mode = {
 	.vsync_start = 480 + 1,
 	.vsync_end = 480 + 1 + 1,
 	.vtotal = 480 + 1 + 1 + 1,
-	/*
-	 * This depends on the clocking HS vs LP rate, this value
-	 * is calculated as:
-	 * vrefresh = (clock * 1000) / (htotal*vtotal)
-	 */
-	.vrefresh = 816,
 	.width_mm = 84,
 	.height_mm = 48,
 };
@@ -143,12 +137,12 @@ static int s6d16d0_disable(struct drm_panel *panel)
 	return 0;
 }
 
-static int s6d16d0_get_modes(struct drm_panel *panel)
+static int s6d16d0_get_modes(struct drm_panel *panel,
+			     struct drm_connector *connector)
 {
-	struct drm_connector *connector = panel->connector;
 	struct drm_display_mode *mode;
 
-	mode = drm_mode_duplicate(panel->drm, &samsung_s6d16d0_mode);
+	mode = drm_mode_duplicate(connector->dev, &samsung_s6d16d0_mode);
 	if (!mode) {
 		DRM_ERROR("bad mode or failed to add mode\n");
 		return -EINVAL;

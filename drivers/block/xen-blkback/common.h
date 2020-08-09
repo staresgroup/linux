@@ -36,7 +36,6 @@
 #include <linux/io.h>
 #include <linux/rbtree.h>
 #include <asm/setup.h>
-#include <asm/pgalloc.h>
 #include <asm/hypervisor.h>
 #include <xen/grant_table.h>
 #include <xen/page.h>
@@ -319,6 +318,7 @@ struct xen_blkif {
 	/* All rings for this device. */
 	struct xen_blkif_ring	*rings;
 	unsigned int		nr_rings;
+	unsigned long		buffer_squeeze_end;
 };
 
 struct seg_buf {

@@ -9,52 +9,13 @@
 #include "i915_drv.h"
 
 const struct drm_i915_gem_object_ops i915_gem_lmem_obj_ops = {
+	.name = "i915_gem_object_lmem",
 	.flags = I915_GEM_OBJECT_HAS_IOMEM,
 
 	.get_pages = i915_gem_object_get_pages_buddy,
 	.put_pages = i915_gem_object_put_pages_buddy,
 	.release = i915_gem_object_release_memory_region,
 };
-
-/* XXX: Time to vfunc your life up? */
-void __iomem *
-i915_gem_object_lmem_io_map_page(struct drm_i915_gem_object *obj,
-				 unsigned long n)
-{
-	resource_size_t offset;
-
-	offset = i915_gem_object_get_dma_address(obj, n);
-	offset -= obj->mm.region->region.start;
-
-	return io_mapping_map_wc(&obj->mm.region->iomap, offset, PAGE_SIZE);
-}
-
-void __iomem *
-i915_gem_object_lmem_io_map_page_atomic(struct drm_i915_gem_object *obj,
-					unsigned long n)
-{
-	resource_size_t offset;
-
-	offset = i915_gem_object_get_dma_address(obj, n);
-	offset -= obj->mm.region->region.start;
-
-	return io_mapping_map_atomic_wc(&obj->mm.region->iomap, offset);
-}
-
-void __iomem *
-i915_gem_object_lmem_io_map(struct drm_i915_gem_object *obj,
-			    unsigned long n,
-			    unsigned long size)
-{
-	resource_size_t offset;
-
-	GEM_BUG_ON(!i915_gem_object_is_contiguous(obj));
-
-	offset = i915_gem_object_get_dma_address(obj, n);
-	offset -= obj->mm.region->region.start;
-
-	return io_mapping_map_wc(&obj->mm.region->iomap, offset, size);
-}
 
 bool i915_gem_object_is_lmem(struct drm_i915_gem_object *obj)
 {
@@ -78,9 +39,6 @@ __i915_gem_lmem_object_create(struct intel_memory_region *mem,
 	static struct lock_class_key lock_class;
 	struct drm_i915_private *i915 = mem->i915;
 	struct drm_i915_gem_object *obj;
-
-	if (size > BIT(mem->mm.max_order) * mem->mm.chunk_size)
-		return ERR_PTR(-E2BIG);
 
 	obj = i915_gem_object_alloc();
 	if (!obj)

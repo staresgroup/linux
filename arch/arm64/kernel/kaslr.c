@@ -10,13 +10,14 @@
 #include <linux/mm_types.h>
 #include <linux/sched.h>
 #include <linux/types.h>
+#include <linux/pgtable.h>
+#include <linux/random.h>
 
 #include <asm/cacheflush.h>
 #include <asm/fixmap.h>
 #include <asm/kernel-pgtable.h>
 #include <asm/memory.h>
 #include <asm/mmu.h>
-#include <asm/pgtable.h>
 #include <asm/sections.h>
 
 enum kaslr_status {
@@ -83,6 +84,7 @@ u64 __init kaslr_early_init(u64 dt_phys)
 	void *fdt;
 	u64 seed, offset, mask, module_range;
 	const u8 *cmdline, *str;
+	unsigned long raw;
 	int size;
 
 	/*
@@ -119,6 +121,14 @@ u64 __init kaslr_early_init(u64 dt_phys)
 		kaslr_status = KASLR_DISABLED_CMDLINE;
 		return 0;
 	}
+
+	/*
+	 * Mix in any entropy obtainable architecturally if enabled
+	 * and supported.
+	 */
+
+	if (arch_get_random_seed_long_early(&raw))
+		seed ^= raw;
 
 	if (!seed) {
 		kaslr_status = KASLR_DISABLED_NO_SEED;

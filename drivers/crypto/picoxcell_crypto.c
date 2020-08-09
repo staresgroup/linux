@@ -86,6 +86,7 @@ struct spacc_req {
 	dma_addr_t			src_addr, dst_addr;
 	struct spacc_ddt		*src_ddt, *dst_ddt;
 	void				(*complete)(struct spacc_req *req);
+	struct skcipher_request		fallback_req;	// keep at the end
 };
 
 struct spacc_aead {
@@ -158,7 +159,7 @@ struct spacc_ablk_ctx {
 	 * The fallback cipher. If the operation can't be done in hardware,
 	 * fallback to a software version.
 	 */
-	struct crypto_sync_skcipher	*sw_cipher;
+	struct crypto_skcipher		*sw_cipher;
 };
 
 /* AEAD cipher context. */
@@ -465,9 +466,6 @@ static int spacc_aead_setkey(struct crypto_aead *tfm, const u8 *key,
 	crypto_aead_set_flags(ctx->sw_cipher, crypto_aead_get_flags(tfm) &
 					      CRYPTO_TFM_REQ_MASK);
 	err = crypto_aead_setkey(ctx->sw_cipher, key, keylen);
-	crypto_aead_clear_flags(tfm, CRYPTO_TFM_RES_MASK);
-	crypto_aead_set_flags(tfm, crypto_aead_get_flags(ctx->sw_cipher) &
-				   CRYPTO_TFM_RES_MASK);
 	if (err)
 		return err;
 
@@ -490,7 +488,6 @@ static int spacc_aead_setkey(struct crypto_aead *tfm, const u8 *key,
 	return 0;
 
 badkey:
-	crypto_aead_set_flags(tfm, CRYPTO_TFM_RES_BAD_KEY_LEN);
 	memzero_explicit(&keys, sizeof(keys));
 	return -EINVAL;
 }
@@ -780,10 +777,8 @@ static int spacc_aes_setkey(struct crypto_skcipher *cipher, const u8 *key,
 	struct spacc_ablk_ctx *ctx = crypto_tfm_ctx(tfm);
 	int err = 0;
 
-	if (len > AES_MAX_KEY_SIZE) {
-		crypto_skcipher_set_flags(cipher, CRYPTO_TFM_RES_BAD_KEY_LEN);
+	if (len > AES_MAX_KEY_SIZE)
 		return -EINVAL;
-	}
 
 	/*
 	 * IPSec engine only supports 128 and 256 bit AES keys. If we get a
@@ -798,19 +793,13 @@ static int spacc_aes_setkey(struct crypto_skcipher *cipher, const u8 *key,
 		 * Set the fallback transform to use the same request flags as
 		 * the hardware transform.
 		 */
-		crypto_sync_skcipher_clear_flags(ctx->sw_cipher,
+		crypto_skcipher_clear_flags(ctx->sw_cipher,
 					    CRYPTO_TFM_REQ_MASK);
-		crypto_sync_skcipher_set_flags(ctx->sw_cipher,
+		crypto_skcipher_set_flags(ctx->sw_cipher,
 					  cipher->base.crt_flags &
 					  CRYPTO_TFM_REQ_MASK);
 
-		err = crypto_sync_skcipher_setkey(ctx->sw_cipher, key, len);
-
-		tfm->crt_flags &= ~CRYPTO_TFM_RES_MASK;
-		tfm->crt_flags |=
-			crypto_sync_skcipher_get_flags(ctx->sw_cipher) &
-			CRYPTO_TFM_RES_MASK;
-
+		err = crypto_skcipher_setkey(ctx->sw_cipher, key, len);
 		if (err)
 			goto sw_setkey_failed;
 	}
@@ -830,7 +819,6 @@ static int spacc_kasumi_f8_setkey(struct crypto_skcipher *cipher,
 	int err = 0;
 
 	if (len > AES_MAX_KEY_SIZE) {
-		crypto_skcipher_set_flags(cipher, CRYPTO_TFM_RES_BAD_KEY_LEN);
 		err = -EINVAL;
 		goto out;
 	}
@@ -913,7 +901,7 @@ static int spacc_ablk_do_fallback(struct skcipher_request *req,
 	struct crypto_tfm *old_tfm =
 	    crypto_skcipher_tfm(crypto_skcipher_reqtfm(req));
 	struct spacc_ablk_ctx *ctx = crypto_tfm_ctx(old_tfm);
-	SYNC_SKCIPHER_REQUEST_ON_STACK(subreq, ctx->sw_cipher);
+	struct spacc_req *dev_req = skcipher_request_ctx(req);
 	int err;
 
 	/*
@@ -921,13 +909,13 @@ static int spacc_ablk_do_fallback(struct skcipher_request *req,
 	 * the ciphering has completed, put the old transform back into the
 	 * request.
 	 */
-	skcipher_request_set_sync_tfm(subreq, ctx->sw_cipher);
-	skcipher_request_set_callback(subreq, req->base.flags, NULL, NULL);
-	skcipher_request_set_crypt(subreq, req->src, req->dst,
+	skcipher_request_set_tfm(&dev_req->fallback_req, ctx->sw_cipher);
+	skcipher_request_set_callback(&dev_req->fallback_req, req->base.flags,
+				      req->base.complete, req->base.data);
+	skcipher_request_set_crypt(&dev_req->fallback_req, req->src, req->dst,
 				   req->cryptlen, req->iv);
-	err = is_encrypt ? crypto_skcipher_encrypt(subreq) :
-			   crypto_skcipher_decrypt(subreq);
-	skcipher_request_zero(subreq);
+	err = is_encrypt ? crypto_skcipher_encrypt(&dev_req->fallback_req) :
+			   crypto_skcipher_decrypt(&dev_req->fallback_req);
 
 	return err;
 }
@@ -1020,18 +1008,23 @@ static int spacc_ablk_init_tfm(struct crypto_skcipher *tfm)
 	ctx->generic.flags = spacc_alg->type;
 	ctx->generic.engine = engine;
 	if (alg->base.cra_flags & CRYPTO_ALG_NEED_FALLBACK) {
-		ctx->sw_cipher = crypto_alloc_sync_skcipher(
-			alg->base.cra_name, 0, CRYPTO_ALG_NEED_FALLBACK);
+		ctx->sw_cipher = crypto_alloc_skcipher(alg->base.cra_name, 0,
+						       CRYPTO_ALG_NEED_FALLBACK);
 		if (IS_ERR(ctx->sw_cipher)) {
 			dev_warn(engine->dev, "failed to allocate fallback for %s\n",
 				 alg->base.cra_name);
 			return PTR_ERR(ctx->sw_cipher);
 		}
+		crypto_skcipher_set_reqsize(tfm, sizeof(struct spacc_req) +
+						 crypto_skcipher_reqsize(ctx->sw_cipher));
+	} else {
+		/* take the size without the fallback skcipher_request at the end */
+		crypto_skcipher_set_reqsize(tfm, offsetof(struct spacc_req,
+							  fallback_req));
 	}
+
 	ctx->generic.key_offs = spacc_alg->key_offs;
 	ctx->generic.iv_offs = spacc_alg->iv_offs;
-
-	crypto_skcipher_set_reqsize(tfm, sizeof(struct spacc_req));
 
 	return 0;
 }
@@ -1040,7 +1033,7 @@ static void spacc_ablk_exit_tfm(struct crypto_skcipher *tfm)
 {
 	struct spacc_ablk_ctx *ctx = crypto_skcipher_ctx(tfm);
 
-	crypto_free_sync_skcipher(ctx->sw_cipher);
+	crypto_free_skcipher(ctx->sw_cipher);
 }
 
 static int spacc_ablk_encrypt(struct skcipher_request *req)
@@ -1239,6 +1232,7 @@ static struct spacc_alg ipsec_engine_algs[] = {
 			.base.cra_priority	= SPACC_CRYPTO_ALG_PRIORITY,
 			.base.cra_flags		= CRYPTO_ALG_KERN_DRIVER_ONLY |
 						  CRYPTO_ALG_ASYNC |
+						  CRYPTO_ALG_ALLOCATES_MEMORY |
 						  CRYPTO_ALG_NEED_FALLBACK,
 			.base.cra_blocksize	= AES_BLOCK_SIZE,
 			.base.cra_ctxsize	= sizeof(struct spacc_ablk_ctx),
@@ -1264,6 +1258,7 @@ static struct spacc_alg ipsec_engine_algs[] = {
 			.base.cra_priority	= SPACC_CRYPTO_ALG_PRIORITY,
 			.base.cra_flags		= CRYPTO_ALG_KERN_DRIVER_ONLY |
 						  CRYPTO_ALG_ASYNC |
+						  CRYPTO_ALG_ALLOCATES_MEMORY |
 						  CRYPTO_ALG_NEED_FALLBACK,
 			.base.cra_blocksize	= AES_BLOCK_SIZE,
 			.base.cra_ctxsize	= sizeof(struct spacc_ablk_ctx),
@@ -1287,7 +1282,8 @@ static struct spacc_alg ipsec_engine_algs[] = {
 			.base.cra_driver_name	= "cbc-des-picoxcell",
 			.base.cra_priority	= SPACC_CRYPTO_ALG_PRIORITY,
 			.base.cra_flags		= CRYPTO_ALG_KERN_DRIVER_ONLY |
-						  CRYPTO_ALG_ASYNC,
+						  CRYPTO_ALG_ASYNC |
+						  CRYPTO_ALG_ALLOCATES_MEMORY,
 			.base.cra_blocksize	= DES_BLOCK_SIZE,
 			.base.cra_ctxsize	= sizeof(struct spacc_ablk_ctx),
 			.base.cra_module	= THIS_MODULE,
@@ -1311,7 +1307,8 @@ static struct spacc_alg ipsec_engine_algs[] = {
 			.base.cra_driver_name	= "ecb-des-picoxcell",
 			.base.cra_priority	= SPACC_CRYPTO_ALG_PRIORITY,
 			.base.cra_flags		= CRYPTO_ALG_KERN_DRIVER_ONLY |
-						  CRYPTO_ALG_ASYNC,
+						  CRYPTO_ALG_ASYNC |
+						  CRYPTO_ALG_ALLOCATES_MEMORY,
 			.base.cra_blocksize	= DES_BLOCK_SIZE,
 			.base.cra_ctxsize	= sizeof(struct spacc_ablk_ctx),
 			.base.cra_module	= THIS_MODULE,
@@ -1334,6 +1331,7 @@ static struct spacc_alg ipsec_engine_algs[] = {
 			.base.cra_driver_name	= "cbc-des3-ede-picoxcell",
 			.base.cra_priority	= SPACC_CRYPTO_ALG_PRIORITY,
 			.base.cra_flags		= CRYPTO_ALG_ASYNC |
+						  CRYPTO_ALG_ALLOCATES_MEMORY |
 						  CRYPTO_ALG_KERN_DRIVER_ONLY,
 			.base.cra_blocksize	= DES3_EDE_BLOCK_SIZE,
 			.base.cra_ctxsize	= sizeof(struct spacc_ablk_ctx),
@@ -1358,6 +1356,7 @@ static struct spacc_alg ipsec_engine_algs[] = {
 			.base.cra_driver_name	= "ecb-des3-ede-picoxcell",
 			.base.cra_priority	= SPACC_CRYPTO_ALG_PRIORITY,
 			.base.cra_flags		= CRYPTO_ALG_ASYNC |
+						  CRYPTO_ALG_ALLOCATES_MEMORY |
 						  CRYPTO_ALG_KERN_DRIVER_ONLY,
 			.base.cra_blocksize	= DES3_EDE_BLOCK_SIZE,
 			.base.cra_ctxsize	= sizeof(struct spacc_ablk_ctx),
@@ -1389,6 +1388,7 @@ static struct spacc_aead ipsec_engine_aeads[] = {
 						   "cbc-aes-picoxcell",
 				.cra_priority = SPACC_CRYPTO_ALG_PRIORITY,
 				.cra_flags = CRYPTO_ALG_ASYNC |
+					     CRYPTO_ALG_ALLOCATES_MEMORY |
 					     CRYPTO_ALG_NEED_FALLBACK |
 					     CRYPTO_ALG_KERN_DRIVER_ONLY,
 				.cra_blocksize = AES_BLOCK_SIZE,
@@ -1419,6 +1419,7 @@ static struct spacc_aead ipsec_engine_aeads[] = {
 						   "cbc-aes-picoxcell",
 				.cra_priority = SPACC_CRYPTO_ALG_PRIORITY,
 				.cra_flags = CRYPTO_ALG_ASYNC |
+					     CRYPTO_ALG_ALLOCATES_MEMORY |
 					     CRYPTO_ALG_NEED_FALLBACK |
 					     CRYPTO_ALG_KERN_DRIVER_ONLY,
 				.cra_blocksize = AES_BLOCK_SIZE,
@@ -1449,6 +1450,7 @@ static struct spacc_aead ipsec_engine_aeads[] = {
 						   "cbc-aes-picoxcell",
 				.cra_priority = SPACC_CRYPTO_ALG_PRIORITY,
 				.cra_flags = CRYPTO_ALG_ASYNC |
+					     CRYPTO_ALG_ALLOCATES_MEMORY |
 					     CRYPTO_ALG_NEED_FALLBACK |
 					     CRYPTO_ALG_KERN_DRIVER_ONLY,
 				.cra_blocksize = AES_BLOCK_SIZE,
@@ -1479,6 +1481,7 @@ static struct spacc_aead ipsec_engine_aeads[] = {
 						   "cbc-3des-picoxcell",
 				.cra_priority = SPACC_CRYPTO_ALG_PRIORITY,
 				.cra_flags = CRYPTO_ALG_ASYNC |
+					     CRYPTO_ALG_ALLOCATES_MEMORY |
 					     CRYPTO_ALG_NEED_FALLBACK |
 					     CRYPTO_ALG_KERN_DRIVER_ONLY,
 				.cra_blocksize = DES3_EDE_BLOCK_SIZE,
@@ -1510,6 +1513,7 @@ static struct spacc_aead ipsec_engine_aeads[] = {
 						   "cbc-3des-picoxcell",
 				.cra_priority = SPACC_CRYPTO_ALG_PRIORITY,
 				.cra_flags = CRYPTO_ALG_ASYNC |
+					     CRYPTO_ALG_ALLOCATES_MEMORY |
 					     CRYPTO_ALG_NEED_FALLBACK |
 					     CRYPTO_ALG_KERN_DRIVER_ONLY,
 				.cra_blocksize = DES3_EDE_BLOCK_SIZE,
@@ -1540,6 +1544,7 @@ static struct spacc_aead ipsec_engine_aeads[] = {
 						   "cbc-3des-picoxcell",
 				.cra_priority = SPACC_CRYPTO_ALG_PRIORITY,
 				.cra_flags = CRYPTO_ALG_ASYNC |
+					     CRYPTO_ALG_ALLOCATES_MEMORY |
 					     CRYPTO_ALG_NEED_FALLBACK |
 					     CRYPTO_ALG_KERN_DRIVER_ONLY,
 				.cra_blocksize = DES3_EDE_BLOCK_SIZE,
@@ -1569,6 +1574,7 @@ static struct spacc_alg l2_engine_algs[] = {
 			.base.cra_driver_name	= "f8-kasumi-picoxcell",
 			.base.cra_priority	= SPACC_CRYPTO_ALG_PRIORITY,
 			.base.cra_flags		= CRYPTO_ALG_ASYNC |
+						  CRYPTO_ALG_ALLOCATES_MEMORY |
 						  CRYPTO_ALG_KERN_DRIVER_ONLY,
 			.base.cra_blocksize	= 8,
 			.base.cra_ctxsize	= sizeof(struct spacc_ablk_ctx),
@@ -1594,6 +1600,11 @@ static const struct of_device_id spacc_of_id_table[] = {
 };
 MODULE_DEVICE_TABLE(of, spacc_of_id_table);
 #endif /* CONFIG_OF */
+
+static void spacc_tasklet_kill(void *data)
+{
+	tasklet_kill(data);
+}
 
 static int spacc_probe(struct platform_device *pdev)
 {
@@ -1636,6 +1647,14 @@ static int spacc_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "no memory/irq resource for engine\n");
 		return -ENXIO;
 	}
+
+	tasklet_init(&engine->complete, spacc_spacc_complete,
+		     (unsigned long)engine);
+
+	ret = devm_add_action(&pdev->dev, spacc_tasklet_kill,
+			      &engine->complete);
+	if (ret)
+		return ret;
 
 	if (devm_request_irq(&pdev->dev, irq->start, spacc_spacc_irq, 0,
 			     engine->name, engine)) {
@@ -1694,8 +1713,6 @@ static int spacc_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&engine->completed);
 	INIT_LIST_HEAD(&engine->in_progress);
 	engine->in_flight = 0;
-	tasklet_init(&engine->complete, spacc_spacc_complete,
-		     (unsigned long)engine);
 
 	platform_set_drvdata(pdev, engine);
 

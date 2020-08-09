@@ -20,10 +20,12 @@
 
 struct device;
 struct led_pattern;
+struct device_node;
 /*
  * LED Core
  */
 
+/* This is obsolete/useless. We now support variable maximum brightness. */
 enum led_brightness {
 	LED_OFF		= 0,
 	LED_ON		= 1,
@@ -53,6 +55,10 @@ struct led_init_data {
 	 * set it to true
 	 */
 	bool devname_mandatory;
+};
+
+struct led_hw_trigger_type {
+	int dummy;
 };
 
 struct led_classdev {
@@ -139,6 +145,9 @@ struct led_classdev {
 	void			*trigger_data;
 	/* true if activated - deactivate routine uses it to do cleanup */
 	bool			activated;
+
+	/* LEDs that have private triggers have this set */
+	struct led_hw_trigger_type	*trigger_type;
 #endif
 
 #ifdef CONFIG_LEDS_BRIGHTNESS_HW_CHANGED
@@ -195,6 +204,11 @@ void devm_led_classdev_unregister(struct device *parent,
 				  struct led_classdev *led_cdev);
 void led_classdev_suspend(struct led_classdev *led_cdev);
 void led_classdev_resume(struct led_classdev *led_cdev);
+
+extern struct led_classdev *of_led_get(struct device_node *np, int index);
+extern void led_put(struct led_classdev *led_cdev);
+struct led_classdev *__must_check devm_of_led_get(struct device *dev,
+						  int index);
 
 /**
  * led_blink_set - set blinking with software fallback
@@ -337,6 +351,9 @@ struct led_trigger {
 	const char	 *name;
 	int		(*activate)(struct led_classdev *led_cdev);
 	void		(*deactivate)(struct led_classdev *led_cdev);
+
+	/* LED-private triggers have this set */
+	struct led_hw_trigger_type *trigger_type;
 
 	/* LEDs under control by this trigger (for simple triggers) */
 	rwlock_t	  leddev_list_lock;

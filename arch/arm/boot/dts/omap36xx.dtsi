@@ -1,7 +1,7 @@
 /*
  * Device Tree Source for OMAP3 SoC
  *
- * Copyright (C) 2012 Texas Instruments Incorporated - http://www.ti.com/
+ * Copyright (C) 2012 Texas Instruments Incorporated - https://www.ti.com/
  *
  * This file is licensed under the terms of the GNU General Public License
  * version 2.  This program is licensed "as is" without any warranty of any
@@ -221,6 +221,10 @@
 	thermal_zones: thermal-zones {
 		#include "omap3-cpu-thermal.dtsi"
 	};
+};
+
+&sdma {
+	compatible = "ti,omap3630-sdma", "ti,omap-sdma";
 };
 
 /* OMAP3630 needs dss_96m_fck for VENC */

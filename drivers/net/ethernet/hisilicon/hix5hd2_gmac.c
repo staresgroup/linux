@@ -893,7 +893,7 @@ static void hix5hd2_tx_timeout_task(struct work_struct *work)
 	hix5hd2_net_open(priv->netdev);
 }
 
-static void hix5hd2_net_timeout(struct net_device *dev)
+static void hix5hd2_net_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	struct hix5hd2_priv *priv = netdev_priv(dev);
 
@@ -1024,9 +1024,9 @@ static int hix5hd2_init_sg_desc_queue(struct hix5hd2_priv *priv)
 	struct sg_desc *desc;
 	dma_addr_t phys_addr;
 
-	desc = (struct sg_desc *)dma_alloc_coherent(priv->dev,
-				TX_DESC_NUM * sizeof(struct sg_desc),
-				&phys_addr, GFP_KERNEL);
+	desc = dma_alloc_coherent(priv->dev,
+				  TX_DESC_NUM * sizeof(struct sg_desc),
+				  &phys_addr, GFP_KERNEL);
 	if (!desc)
 		return -ENOMEM;
 

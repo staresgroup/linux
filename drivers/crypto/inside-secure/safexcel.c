@@ -501,8 +501,8 @@ static int safexcel_hw_setup_cdesc_rings(struct safexcel_crypto_priv *priv)
 		writel(upper_32_bits(priv->ring[i].cdr.base_dma),
 		       EIP197_HIA_CDR(priv, i) + EIP197_HIA_xDR_RING_BASE_ADDR_HI);
 
-		writel(EIP197_xDR_DESC_MODE_64BIT | (priv->config.cd_offset << 14) |
-		       priv->config.cd_size,
+		writel(EIP197_xDR_DESC_MODE_64BIT | EIP197_CDR_DESC_MODE_ADCP |
+		       (priv->config.cd_offset << 14) | priv->config.cd_size,
 		       EIP197_HIA_CDR(priv, i) + EIP197_HIA_xDR_DESC_SIZE);
 		writel(((cd_fetch_cnt *
 			 (cd_size_rnd << priv->hwconfig.hwdataw)) << 16) |
@@ -974,16 +974,18 @@ int safexcel_invalidate_cache(struct crypto_async_request *async,
 {
 	struct safexcel_command_desc *cdesc;
 	struct safexcel_result_desc *rdesc;
+	struct safexcel_token  *dmmy;
 	int ret = 0;
 
 	/* Prepare command descriptor */
-	cdesc = safexcel_add_cdesc(priv, ring, true, true, 0, 0, 0, ctxr_dma);
+	cdesc = safexcel_add_cdesc(priv, ring, true, true, 0, 0, 0, ctxr_dma,
+				   &dmmy);
 	if (IS_ERR(cdesc))
 		return PTR_ERR(cdesc);
 
 	cdesc->control_data.type = EIP197_TYPE_EXTENDED;
 	cdesc->control_data.options = 0;
-	cdesc->control_data.refresh = 0;
+	cdesc->control_data.context_lo &= ~EIP197_CONTEXT_SIZE_MASK;
 	cdesc->control_data.control0 = CONTEXT_CONTROL_INV_TR;
 
 	/* Prepare result descriptor */
@@ -1133,11 +1135,12 @@ static irqreturn_t safexcel_irq_ring_thread(int irq, void *data)
 
 static int safexcel_request_ring_irq(void *pdev, int irqid,
 				     int is_pci_dev,
+				     int ring_id,
 				     irq_handler_t handler,
 				     irq_handler_t threaded_handler,
 				     struct safexcel_ring_irq_data *ring_irq_priv)
 {
-	int ret, irq;
+	int ret, irq, cpu;
 	struct device *dev;
 
 	if (IS_ENABLED(CONFIG_PCI) && is_pci_dev) {
@@ -1174,6 +1177,10 @@ static int safexcel_request_ring_irq(void *pdev, int irqid,
 		dev_err(dev, "unable to request IRQ %d\n", irq);
 		return ret;
 	}
+
+	/* Set affinity */
+	cpu = cpumask_local_spread(ring_id, NUMA_NO_NODE);
+	irq_set_affinity_hint(irq, get_cpu_mask(cpu));
 
 	return irq;
 }
@@ -1331,6 +1338,7 @@ static void safexcel_configure(struct safexcel_crypto_priv *priv)
 
 	priv->config.cd_size = EIP197_CD64_FETCH_SIZE;
 	priv->config.cd_offset = (priv->config.cd_size + mask) & ~mask;
+	priv->config.cdsh_offset = (EIP197_MAX_TOKENS + mask) & ~mask;
 
 	/* res token is behind the descr, but ofs must be rounded to buswdth */
 	priv->config.res_offset = (EIP197_RD64_FETCH_SIZE + mask) & ~mask;
@@ -1341,6 +1349,7 @@ static void safexcel_configure(struct safexcel_crypto_priv *priv)
 
 	/* convert dwords to bytes */
 	priv->config.cd_offset *= sizeof(u32);
+	priv->config.cdsh_offset *= sizeof(u32);
 	priv->config.rd_offset *= sizeof(u32);
 	priv->config.res_offset *= sizeof(u32);
 }
@@ -1607,6 +1616,7 @@ static int safexcel_probe_generic(void *pdev,
 		irq = safexcel_request_ring_irq(pdev,
 						EIP197_IRQ_NUMBER(i, is_pci_dev),
 						is_pci_dev,
+						i,
 						safexcel_irq_ring,
 						safexcel_irq_ring_thread,
 						ring_irq);
@@ -1615,6 +1625,7 @@ static int safexcel_probe_generic(void *pdev,
 			return irq;
 		}
 
+		priv->ring[i].irq = irq;
 		priv->ring[i].work_data.priv = priv;
 		priv->ring[i].work_data.ring = i;
 		INIT_WORK(&priv->ring[i].work_data.work,
@@ -1752,8 +1763,10 @@ static int safexcel_remove(struct platform_device *pdev)
 	clk_disable_unprepare(priv->reg_clk);
 	clk_disable_unprepare(priv->clk);
 
-	for (i = 0; i < priv->config.rings; i++)
+	for (i = 0; i < priv->config.rings; i++) {
+		irq_set_affinity_hint(priv->ring[i].irq, NULL);
 		destroy_workqueue(priv->ring[i].workqueue);
+	}
 
 	return 0;
 }

@@ -9,6 +9,9 @@
 #define USB_TYPEC_REV_1_0	0x100 /* 1.0 */
 #define USB_TYPEC_REV_1_1	0x110 /* 1.1 */
 #define USB_TYPEC_REV_1_2	0x120 /* 1.2 */
+#define USB_TYPEC_REV_1_3	0x130 /* 1.3 */
+#define USB_TYPEC_REV_1_4	0x140 /* 1.4 */
+#define USB_TYPEC_REV_2_0	0x200 /* 2.0 */
 
 struct typec_partner;
 struct typec_cable;
@@ -70,10 +73,25 @@ enum typec_orientation {
 };
 
 /*
+ * struct enter_usb_data - Enter_USB Message details
+ * @eudo: Enter_USB Data Object
+ * @active_link_training: Active Cable Plug Link Training
+ *
+ * @active_link_training is a flag that should be set with uni-directional SBRX
+ * communication, and left 0 with passive cables and with bi-directional SBRX
+ * communication.
+ */
+struct enter_usb_data {
+	u32			eudo;
+	unsigned char		active_link_training:1;
+};
+
+/*
  * struct usb_pd_identity - USB Power Delivery identity data
  * @id_header: ID Header VDO
  * @cert_stat: Cert Stat VDO
  * @product: Product VDO
+ * @vdo: Product Type Specific VDOs
  *
  * USB power delivery Discover Identity command response data.
  *
@@ -84,6 +102,7 @@ struct usb_pd_identity {
 	u32			id_header;
 	u32			cert_stat;
 	u32			product;
+	u32			vdo[3];
 };
 
 int typec_partner_set_identity(struct typec_partner *partner);
@@ -193,8 +212,6 @@ struct typec_operations {
  * @pd_revision: USB Power Delivery Specification revision if supported
  * @prefer_role: Initial role preference (DRP ports).
  * @accessory: Supported Accessory Modes
- * @sw: Cable plug orientation switch
- * @mux: Multiplexer switch for Alternate/Accessory Modes
  * @fwnode: Optional fwnode of the port
  * @driver_data: Private pointer for driver specific info
  * @ops: Port operations vector
@@ -208,6 +225,7 @@ struct typec_capability {
 	u16			pd_revision; /* 0300H = "3.0" */
 	int			prefer_role;
 	enum typec_accessory	accessory[TYPEC_MAX_ACCESSORY];
+	unsigned int		orientation_aware:1;
 
 	struct fwnode_handle	*fwnode;
 	void			*driver_data;
@@ -230,6 +248,10 @@ struct typec_cable *typec_register_cable(struct typec_port *port,
 					 struct typec_cable_desc *desc);
 void typec_unregister_cable(struct typec_cable *cable);
 
+struct typec_cable *typec_cable_get(struct typec_port *port);
+void typec_cable_put(struct typec_cable *cable);
+int typec_cable_is_active(struct typec_cable *cable);
+
 struct typec_plug *typec_register_plug(struct typec_cable *cable,
 				       struct typec_plug_desc *desc);
 void typec_unregister_plug(struct typec_plug *plug);
@@ -246,6 +268,7 @@ int typec_set_mode(struct typec_port *port, int mode);
 
 void *typec_get_drvdata(struct typec_port *port);
 
+int typec_find_orientation(const char *name);
 int typec_find_port_power_role(const char *name);
 int typec_find_power_role(const char *name);
 int typec_find_port_data_role(const char *name);

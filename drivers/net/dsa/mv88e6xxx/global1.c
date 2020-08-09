@@ -196,6 +196,23 @@ int mv88e6185_g1_ppu_disable(struct mv88e6xxx_chip *chip)
 	return mv88e6185_g1_wait_ppu_disabled(chip);
 }
 
+int mv88e6185_g1_set_max_frame_size(struct mv88e6xxx_chip *chip, int mtu)
+{
+	u16 val;
+	int err;
+
+	err = mv88e6xxx_g1_read(chip, MV88E6XXX_G1_CTL1, &val);
+	if (err)
+		return err;
+
+	val &= ~MV88E6185_G1_CTL1_MAX_FRAME_1632;
+
+	if (mtu > 1518)
+		val |= MV88E6185_G1_CTL1_MAX_FRAME_1632;
+
+	return mv88e6xxx_g1_write(chip, MV88E6XXX_G1_CTL1, val);
+}
+
 /* Offset 0x10: IP-PRI Mapping Register 0
  * Offset 0x11: IP-PRI Mapping Register 1
  * Offset 0x12: IP-PRI Mapping Register 2
@@ -278,13 +295,13 @@ int mv88e6095_g1_set_egress_port(struct mv88e6xxx_chip *chip,
 	switch (direction) {
 	case MV88E6XXX_EGRESS_DIR_INGRESS:
 		dest_port_chip = &chip->ingress_dest_port;
-		reg &= MV88E6185_G1_MONITOR_CTL_INGRESS_DEST_MASK;
+		reg &= ~MV88E6185_G1_MONITOR_CTL_INGRESS_DEST_MASK;
 		reg |= port <<
 		       __bf_shf(MV88E6185_G1_MONITOR_CTL_INGRESS_DEST_MASK);
 		break;
 	case MV88E6XXX_EGRESS_DIR_EGRESS:
 		dest_port_chip = &chip->egress_dest_port;
-		reg &= MV88E6185_G1_MONITOR_CTL_EGRESS_DEST_MASK;
+		reg &= ~MV88E6185_G1_MONITOR_CTL_EGRESS_DEST_MASK;
 		reg |= port <<
 		       __bf_shf(MV88E6185_G1_MONITOR_CTL_EGRESS_DEST_MASK);
 		break;

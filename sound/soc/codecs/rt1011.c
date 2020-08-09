@@ -40,7 +40,6 @@ static const struct reg_sequence init_list[] = {
 
 	{ RT1011_ADC_SET_5, 0x0a20 },
 	{ RT1011_DAC_SET_2, 0xa032 },
-	{ RT1011_ADC_SET_1, 0x2925 },
 
 	{ RT1011_SPK_PRO_DC_DET_1, 0xb00c },
 	{ RT1011_SPK_PRO_DC_DET_2, 0xcccc },
@@ -1850,13 +1849,13 @@ static int rt1011_set_tdm_slot(struct snd_soc_dai *dai,
 
 	/* Rx slot configuration */
 	rx_slotnum = hweight_long(rx_mask);
-	first_bit = find_next_bit((unsigned long *)&rx_mask, 32, 0);
-	if (rx_slotnum > 1 || rx_slotnum == 0) {
+	if (rx_slotnum > 1 || !rx_slotnum) {
 		ret = -EINVAL;
-		dev_dbg(component->dev, "too many rx slots or zero slot\n");
+		dev_err(component->dev, "too many rx slots or zero slot\n");
 		goto _set_tdm_err_;
 	}
 
+	first_bit = __ffs(rx_mask);
 	switch (first_bit) {
 	case 0:
 	case 2:
@@ -1893,11 +1892,17 @@ static int rt1011_set_tdm_slot(struct snd_soc_dai *dai,
 
 	/* Tx slot configuration */
 	tx_slotnum = hweight_long(tx_mask);
-	first_bit = find_next_bit((unsigned long *)&tx_mask, 32, 0);
-	last_bit = find_last_bit((unsigned long *)&tx_mask, 32);
-	if (tx_slotnum > 2 || (last_bit-first_bit) > 1) {
+	if (tx_slotnum > 2 || !tx_slotnum) {
 		ret = -EINVAL;
-		dev_dbg(component->dev, "too many tx slots or tx slot location error\n");
+		dev_err(component->dev, "too many tx slots or zero slot\n");
+		goto _set_tdm_err_;
+	}
+
+	first_bit = __ffs(tx_mask);
+	last_bit = __fls(tx_mask);
+	if (last_bit - first_bit > 1) {
+		ret = -EINVAL;
+		dev_err(component->dev, "tx slot location error\n");
 		goto _set_tdm_err_;
 	}
 
@@ -2186,7 +2191,6 @@ static int rt1011_calibrate(struct rt1011_priv *rt1011, unsigned char cali_flag)
 	/* ADC/DAC setting */
 	regmap_write(rt1011->regmap, RT1011_ADC_SET_5, 0x0a20);
 	regmap_write(rt1011->regmap, RT1011_DAC_SET_2, 0xe232);
-	regmap_write(rt1011->regmap, RT1011_ADC_SET_1, 0x2925);
 	regmap_write(rt1011->regmap, RT1011_ADC_SET_4, 0xc000);
 
 	/* DC detection */
@@ -2235,8 +2239,18 @@ static int rt1011_calibrate(struct rt1011_priv *rt1011, unsigned char cali_flag)
 	dc_offset |= (value & 0xffff);
 	dev_info(dev, "Gain1 offset=0x%x\n", dc_offset);
 
+	/* check the package info. */
+	regmap_read(rt1011->regmap, RT1011_EFUSE_MATCH_DONE, &value);
+	if (value & 0x4)
+		rt1011->pack_id = 1;
 
 	if (cali_flag) {
+
+		if (rt1011->pack_id)
+			regmap_write(rt1011->regmap, RT1011_ADC_SET_1, 0x292c);
+		else
+			regmap_write(rt1011->regmap, RT1011_ADC_SET_1, 0x2925);
+
 		/* Class D on */
 		regmap_write(rt1011->regmap, RT1011_CLASS_D_POS, 0x010e);
 		regmap_write(rt1011->regmap,
@@ -2361,6 +2375,11 @@ static void rt1011_calibration_work(struct work_struct *work)
 
 		rt1011_r0_load(rt1011);
 	}
+
+	if (rt1011->pack_id)
+		snd_soc_component_write(component, RT1011_ADC_SET_1, 0x292c);
+	else
+		snd_soc_component_write(component, RT1011_ADC_SET_1, 0x2925);
 }
 
 static int rt1011_parse_dp(struct rt1011_priv *rt1011, struct device *dev)

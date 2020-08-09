@@ -1414,7 +1414,10 @@ static int at91_gpio_get_direction(struct gpio_chip *chip, unsigned offset)
 	u32 osr;
 
 	osr = readl_relaxed(pio + PIO_OSR);
-	return !(osr & mask);
+	if (osr & mask)
+		return GPIO_LINE_DIRECTION_OUT;
+
+	return GPIO_LINE_DIRECTION_IN;
 }
 
 static int at91_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
@@ -1483,14 +1486,11 @@ static void at91_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 	int i;
 	struct at91_gpio_chip *at91_gpio = gpiochip_get_data(chip);
 	void __iomem *pio = at91_gpio->regbase;
+	const char *gpio_label;
 
-	for (i = 0; i < chip->ngpio; i++) {
+	for_each_requested_gpio(chip, i, gpio_label) {
 		unsigned mask = pin_to_mask(i);
-		const char *gpio_label;
 
-		gpio_label = gpiochip_is_requested(chip, i);
-		if (!gpio_label)
-			continue;
 		mode = at91_gpio->ops->get_periph(pio, mask);
 		seq_printf(s, "[%s] GPIO%s%d: ",
 			   gpio_label, chip->label, i);
